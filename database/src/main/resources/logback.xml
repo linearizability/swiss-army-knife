@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 定义日志文件的存储地址及名称 -->
+    <property name="LOG_HOME" value="logs"/>
+    <property name="APPLICATION_LOG_NAME" value="database"/>
+    <property name="ERROR_LOG_NAME" value="database.error"/>
+
+    <!-- 控制台输出 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 文件输出 -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${APPLICATION_LOG_NAME}.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!-- 滚动策略 -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 日志文件名格式 -->
+            <fileNamePattern>${LOG_HOME}/${APPLICATION_LOG_NAME}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 最大保留天数 -->
+            <maxHistory>30</maxHistory>
+            <!-- 单个日志文件最大大小 -->
+            <maxFileSize>10MB</maxFileSize>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 错误日志单独输出 -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${ERROR_LOG_NAME}.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/${ERROR_LOG_NAME}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <maxFileSize>10MB</maxFileSize>
+        </rollingPolicy>
+    </appender>
+
+    <!-- 根日志级别配置 -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+    <!-- 特定包的日志级别 -->
+    <logger name="com.linearizability" level="DEBUG"/>
+    <logger name="com.baomidou.mybatisplus.generator" level="DEBUG"/>
+</configuration>
