@@ -45,6 +45,11 @@ public class DbGenerator {
     private static final String DB_PASSWORD = props.getProperty("db.password");
 
     /**
+     * 数据库驱动
+     */
+    private static final String DB_DRIVER = props.getProperty("db.driver", "com.mysql.cj.jdbc.Driver");
+
+    /**
      * 生成代码的包名
      */
     private static final String PACKAGE_NAME = props.getProperty("package.name");
@@ -167,7 +172,7 @@ public class DbGenerator {
     private static DataSourceConfig buildDataSourceConfig() {
         DataSourceConfig config = new DataSourceConfig();
         return config.setUrl(JDBC_URL)
-                .setDriverName(props.getProperty("db.driver", "com.mysql.cj.jdbc.Driver"))
+                .setDriverName(DB_DRIVER)
                 .setUsername(DB_USER_NAME)
                 .setPassword(DB_PASSWORD);
     }
