@@ -9,10 +9,12 @@
 ~~~bash
 -- 忽略 db-generator.properties 文件后续修改（仅本地）
 git update-index --assume-unchanged database/src/main/resources/db-generator.properties
+git update-index --assume-unchanged document/src/main/resources/db.properties
 
 -- 查看被忽略后续修改的文件
 git ls-files -v | grep '^[[:lower:]]'
 
 -- 取消忽略标记
 git update-index --no-assume-unchanged database/src/main/resources/db-generator.properties
+git update-index --no-assume-unchanged document/src/main/resources/db.properties
 ~~~
