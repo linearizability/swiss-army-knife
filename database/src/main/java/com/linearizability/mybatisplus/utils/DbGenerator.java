@@ -7,9 +7,8 @@ import com.baomidou.mybatisplus.generator.config.*;
 import com.baomidou.mybatisplus.generator.config.po.TableInfo;
 import com.baomidou.mybatisplus.generator.config.rules.NamingStrategy;
 import com.baomidou.mybatisplus.generator.engine.FreemarkerTemplateEngine;
+import com.linearizability.properties.PropertiesUtil;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -27,7 +26,7 @@ public class DbGenerator {
     /**
      * Properties实例，用于加载配置
      */
-    private static final Properties props = loadProperties();
+    private static final Properties props = PropertiesUtil.load(DbGenerator.class, "db-generator.properties");
 
     /**
      * 数据库连接URL
@@ -113,23 +112,6 @@ public class DbGenerator {
      * 需要生成代码的数据库表名
      */
     private static final String[] TABLE_NAMES = parsePropertyArray(props.getProperty("table.names"));
-
-    /**
-     * 加载配置文件
-     */
-    private static Properties loadProperties() {
-        Properties properties = new Properties();
-        try (InputStream input = DbGenerator.class.getClassLoader()
-                .getResourceAsStream("db-generator.properties")) {
-            if (Objects.isNull(input)) {
-                throw new RuntimeException("无法找到 db-generator.properties 配置文件");
-            }
-            properties.load(input);
-        } catch (IOException e) {
-            throw new RuntimeException("加载配置文件失败", e);
-        }
-        return properties;
-    }
 
     /**
      * 解析逗号分隔的属性值为数组

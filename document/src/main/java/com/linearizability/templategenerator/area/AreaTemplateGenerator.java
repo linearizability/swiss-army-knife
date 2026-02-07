@@ -1,5 +1,6 @@
 package com.linearizability.templategenerator.area;
 
+import com.linearizability.properties.PropertiesUtil;
 import com.linearizability.templategenerator.area.model.SysArea;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +13,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -39,7 +39,7 @@ public class AreaTemplateGenerator {
     /**
      * Properties实例，用于加载配置
      */
-    private static final Properties props = loadProperties(AreaTemplateGenerator.class.getClassLoader());
+    private static final Properties props = PropertiesUtil.load(AreaTemplateGenerator.class, "db.properties");
 
     /**
      * 数据库连接信息
@@ -108,24 +108,6 @@ public class AreaTemplateGenerator {
     private static final int HIDDEN_PROVINCE_ID_COL = 0;        // 省份ID列
     private static final int HIDDEN_PROVINCE_NAME_COL = 1;      // 省份名称列
     private static final int HIDDEN_CITY_START_COL = 2;         // 城市数据起始列
-
-    /**
-     * 加载配置文件
-     */
-    private static Properties loadProperties(ClassLoader classLoader) {
-        Properties properties = new Properties();
-        try (InputStream input = classLoader.getResourceAsStream("db.properties")) {
-            if (Objects.isNull(input)) {
-                log.error("无法找到 db.properties 配置文件");
-                throw new RuntimeException("无法找到 db.properties 配置文件");
-            }
-            properties.load(input);
-        } catch (IOException e) {
-            log.error("加载配置文件失败");
-            throw new RuntimeException("加载配置文件失败", e);
-        }
-        return properties;
-    }
 
     /**
      * 主方法，用于测试
