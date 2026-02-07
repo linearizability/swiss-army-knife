@@ -16,8 +16,6 @@
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <poi.version>5.5.1</poi.version>
-        <spring-jdbc.version>7.0.3</spring-jdbc.version>
-        <HikariCP.version>7.0.2</HikariCP.version>
     </properties>
 
     <dependencies>
@@ -63,13 +61,11 @@
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-jdbc</artifactId>
-            <version>${spring-jdbc.version}</version>
         </dependency>
 
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
-            <version>${HikariCP.version}</version>
         </dependency>
     </dependencies>
 

@@ -1,5 +1,6 @@
 package com.linearizability.templategenerator.area;
 
+import com.linearizability.database.DatabaseUtil;
 import com.linearizability.properties.PropertiesUtil;
 import com.linearizability.templategenerator.area.model.SysArea;
 import com.zaxxer.hikari.HikariDataSource;
@@ -472,12 +473,7 @@ public class AreaTemplateGenerator {
         dataSource.setDriverClassName(DB_DRIVER);
         dataSource.setMaximumPoolSize(5);
 
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-
-        List<SysArea> areas = jdbcTemplate.query(AREA_QUERY_SQL, new BeanPropertyRowMapper<>(SysArea.class));
-
-        dataSource.close();
-        return areas;
+        return DatabaseUtil.getList(dataSource, AREA_QUERY_SQL, SysArea.class);
     }
 
     /**
