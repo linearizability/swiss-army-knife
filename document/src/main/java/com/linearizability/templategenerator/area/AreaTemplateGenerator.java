@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -33,19 +34,53 @@ import java.util.stream.Collectors;
  */
 public class AreaTemplateGenerator {
 
-    private static final String DB_URL = "jdbc:mysql://127.0.0.1:3306/test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai";
+    /**
+     * Properties实例，用于加载配置
+     */
+    private static final Properties props = loadProperties();
 
-    private static final String DB_USERNAME = "root";
+    /**
+     * 数据库连接信息
+     *
+     */
+    private static final String DB_URL = props.getProperty("db.url");
 
-    private static final String DB_PASSWORD = "123456";
+    /**
+     * 数据库用户名
+     */
+    private static final String DB_USERNAME = props.getProperty("db.username");
 
-    private static final String DB_DRIVER = "com.mysql.cj.jdbc.Driver";
+    /**
+     * 数据库密码
+     */
+    private static final String DB_PASSWORD = props.getProperty("db.password");
+
+    /**
+     * 数据库驱动
+     */
+    private static final String DB_DRIVER = props.getProperty("db.driver");
 
     // 隐藏工作表名称
     private static final String HIDDEN_SHEET_NAME = "AreaData";
-
     // 主工作表名称
     private static final String MAIN_SHEET_NAME = "省市区选择";
+
+    /**
+     * 加载配置文件
+     */
+    private static Properties loadProperties() {
+        Properties properties = new Properties();
+        try (InputStream input = AreaTemplateGenerator.class.getClassLoader()
+                .getResourceAsStream("db.properties")) {
+            if (Objects.isNull(input)) {
+                throw new RuntimeException("无法找到 db.properties 配置文件");
+            }
+            properties.load(input);
+        } catch (IOException e) {
+            throw new RuntimeException("加载配置文件失败", e);
+        }
+        return properties;
+    }
 
     /**
      * 主方法，用于测试
@@ -306,7 +341,7 @@ public class AreaTemplateGenerator {
         // 8. 设置数据验证（级联下拉）
         // 方案：A、B、C列显示中文名称（用户选择），D、E、F列隐藏存储area_id
         // 下拉列表显示名称，用户选择后，通过公式将名称转换为ID存储到隐藏列
-        int dataRows = 1000; // 设置1000行数据验证（可根据需要调整）
+        int dataRows = 10000; // 设置1000行数据验证（可根据需要调整）
 
         // A列：省名称下拉（只显示名称，不显示ID）
         CellRangeAddressList provinceAddressList = new CellRangeAddressList(1, dataRows, 0, 0);
