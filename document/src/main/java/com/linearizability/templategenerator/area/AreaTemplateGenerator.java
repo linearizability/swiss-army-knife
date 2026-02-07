@@ -73,7 +73,41 @@ public class AreaTemplateGenerator {
     private static final String MAIN_SHEET_NAME = "省市区选择";
 
     private static final String OUTPUT_PATH = "D://area_template.xlsx";
-    ;
+
+    // 区域层级常量
+    private static final int PROVINCE_LEVEL = 2;
+    private static final int CITY_LEVEL = 3;
+    private static final int DISTRICT_LEVEL = 4;
+
+    // 列索引常量
+    private static final int PROVINCE_NAME_COL = 0;  // A列：省
+    private static final int CITY_NAME_COL = 1;      // B列：市
+    private static final int DISTRICT_NAME_COL = 2;  // C列：区
+    private static final int PROVINCE_ID_COL = 3;    // D列：省ID（隐藏）
+    private static final int CITY_ID_COL = 4;        // E列：市ID（隐藏）
+    private static final int DISTRICT_ID_COL = 5;    // F列：区ID（隐藏）
+
+    // 数据验证相关常量
+    private static final int DATA_ROWS_COUNT = 10000;  // 数据验证行数
+    private static final int HEADER_ROW_INDEX = 0;     // 表头行索引
+    private static final int DATA_START_ROW_INDEX = 1; // 数据起始行索引
+
+    // 样式相关常量
+    private static final int COLUMN_WIDTH = 5000;      // 列宽度
+    private static final byte[] HEADER_BG_COLOR = {(byte) 217, (byte) 217, (byte) 217}; // 表头背景色
+
+    // SQL查询常量
+    private static final String AREA_QUERY_SQL = String.format("""
+            SELECT area_id, area_name, area_pid, area_level, sort_index
+            FROM sys_area
+            WHERE area_level IN (%d, %d, %d)
+            ORDER BY area_level, sort_index;
+            """, PROVINCE_LEVEL, CITY_LEVEL, DISTRICT_LEVEL);
+
+    // 隐藏工作表列索引常量
+    private static final int HIDDEN_PROVINCE_ID_COL = 0;        // 省份ID列
+    private static final int HIDDEN_PROVINCE_NAME_COL = 1;      // 省份名称列
+    private static final int HIDDEN_CITY_START_COL = 2;         // 城市数据起始列
 
     /**
      * 加载配置文件
@@ -119,9 +153,9 @@ public class AreaTemplateGenerator {
         Map<Integer, List<SysArea>> areasByLevel = allAreas.stream()
                 .collect(Collectors.groupingBy(SysArea::getAreaLevel));
 
-        List<SysArea> provinces = areasByLevel.getOrDefault(2, new ArrayList<>());
-        List<SysArea> cities = areasByLevel.getOrDefault(3, new ArrayList<>());
-        List<SysArea> districts = areasByLevel.getOrDefault(4, new ArrayList<>());
+        List<SysArea> provinces = areasByLevel.getOrDefault(PROVINCE_LEVEL, new ArrayList<>());
+        List<SysArea> cities = areasByLevel.getOrDefault(CITY_LEVEL, new ArrayList<>());
+        List<SysArea> districts = areasByLevel.getOrDefault(DISTRICT_LEVEL, new ArrayList<>());
 
         // 按sort_index排序
         provinces.sort(Comparator.comparing(SysArea::getSortIndex));
@@ -140,12 +174,12 @@ public class AreaTemplateGenerator {
         for (int i = 0; i < provinces.size(); i++) {
             SysArea province = provinces.get(i);
             XSSFRow row = hiddenSheet.createRow(i);
-            row.createCell(0).setCellValue(province.getAreaId());
-            row.createCell(1).setCellValue(province.getAreaName());
+            row.createCell(HIDDEN_PROVINCE_ID_COL).setCellValue(province.getAreaId());
+            row.createCell(HIDDEN_PROVINCE_NAME_COL).setCellValue(province.getAreaName());
         }
 
         // 为每个省创建对应的市数据（从第3列开始，每两列为一组：ID列和名称列）
-        int cityStartCol = 2;
+        int cityStartCol = HIDDEN_CITY_START_COL;
         Map<Long, Integer> provinceToCityColMap = new HashMap<>(); // 省ID -> 市数据起始列（ID列）
         for (SysArea province : provinces) {
             List<SysArea> provinceCities = cities.stream()
@@ -329,20 +363,20 @@ public class AreaTemplateGenerator {
         workbook.setActiveSheet(workbook.getSheetIndex(MAIN_SHEET_NAME));
 
         // 创建表头（只显示中文）
-        XSSFRow headerRow = mainSheet.createRow(0);
-        headerRow.createCell(0).setCellValue("省");
-        headerRow.createCell(1).setCellValue("市");
-        headerRow.createCell(2).setCellValue("区");
-        headerRow.createCell(3).setCellValue("area_id_level1");
-        headerRow.createCell(4).setCellValue("area_id_level2");
-        headerRow.createCell(5).setCellValue("area_id_level3");
+        XSSFRow headerRow = mainSheet.createRow(HEADER_ROW_INDEX);
+        headerRow.createCell(PROVINCE_NAME_COL).setCellValue("省");
+        headerRow.createCell(CITY_NAME_COL).setCellValue("市");
+        headerRow.createCell(DISTRICT_NAME_COL).setCellValue("区");
+        headerRow.createCell(PROVINCE_ID_COL).setCellValue("area_id_level1");
+        headerRow.createCell(CITY_ID_COL).setCellValue("area_id_level2");
+        headerRow.createCell(DISTRICT_ID_COL).setCellValue("area_id_level3");
 
         // 设置表头样式
         XSSFCellStyle headerStyle = workbook.createCellStyle();
         XSSFFont headerFont = workbook.createFont();
         headerFont.setBold(true);
         headerStyle.setFont(headerFont);
-        headerStyle.setFillForegroundColor(new XSSFColor(new byte[]{(byte) 217, (byte) 217, (byte) 217}, null));
+        headerStyle.setFillForegroundColor(new XSSFColor(HEADER_BG_COLOR, null));
         headerStyle.setFillPattern(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
         for (int i = 0; i < 3; i++) {
             headerRow.getCell(i).setCellStyle(headerStyle);
@@ -351,10 +385,8 @@ public class AreaTemplateGenerator {
         // 8. 设置数据验证（级联下拉）
         // 方案：A、B、C列显示中文名称（用户选择），D、E、F列隐藏存储area_id
         // 下拉列表显示名称，用户选择后，通过公式将名称转换为ID存储到隐藏列
-        int dataRows = 10000; // 设置1000行数据验证（可根据需要调整）
-
         // A列：省名称下拉（只显示名称，不显示ID）
-        CellRangeAddressList provinceAddressList = new CellRangeAddressList(1, dataRows, 0, 0);
+        CellRangeAddressList provinceAddressList = new CellRangeAddressList(1, DATA_ROWS_COUNT, 0, 0);
         DataValidationConstraint provinceConstraint = mainSheet.getDataValidationHelper()
                 .createFormulaListConstraint("ProvinceNames");
         DataValidation provinceValidation = mainSheet.getDataValidationHelper()
@@ -364,7 +396,7 @@ public class AreaTemplateGenerator {
 
         // D列：隐藏列，存储省ID（从A列的名称转换为ID）
         mainSheet.setColumnHidden(3, true);
-        for (int i = 1; i <= dataRows; i++) {
+        for (int i = 1; i <= DATA_ROWS_COUNT; i++) {
             XSSFRow row = mainSheet.getRow(i);
             if (row == null) {
                 row = mainSheet.createRow(i);
@@ -376,7 +408,7 @@ public class AreaTemplateGenerator {
         }
 
         // B列：市名称下拉（级联，只显示名称）
-        CellRangeAddressList cityAddressList = new CellRangeAddressList(1, dataRows, 1, 1);
+        CellRangeAddressList cityAddressList = new CellRangeAddressList(1, DATA_ROWS_COUNT, 1, 1);
         // 从D列的省ID，查找对应的市列表
         String cityFormula = "IF($D2=\"\",\"\",INDIRECT(\"Province_\" & $D2 & \"_CityNames\"))";
         DataValidationConstraint cityConstraint = mainSheet.getDataValidationHelper()
@@ -388,7 +420,7 @@ public class AreaTemplateGenerator {
 
         // E列：隐藏列，存储市ID（从B列的名称转换为ID）
         mainSheet.setColumnHidden(4, true);
-        for (int i = 1; i <= dataRows; i++) {
+        for (int i = 1; i <= DATA_ROWS_COUNT; i++) {
             XSSFRow row = mainSheet.getRow(i);
             if (row == null) {
                 row = mainSheet.createRow(i);
@@ -400,7 +432,7 @@ public class AreaTemplateGenerator {
         }
 
         // C列：区名称下拉（级联，只显示名称）
-        CellRangeAddressList districtAddressList = new CellRangeAddressList(1, dataRows, 2, 2);
+        CellRangeAddressList districtAddressList = new CellRangeAddressList(1, DATA_ROWS_COUNT, 2, 2);
         // 从E列的市ID，查找对应的区列表
         String districtFormula = "IF($E2=\"\",\"\",INDIRECT(\"City_\" & $E2 & \"_DistrictNames\"))";
         DataValidationConstraint districtConstraint = mainSheet.getDataValidationHelper()
@@ -412,7 +444,7 @@ public class AreaTemplateGenerator {
 
         // F列：隐藏列，存储区ID（从C列的名称转换为ID）
         mainSheet.setColumnHidden(5, true);
-        for (int i = 1; i <= dataRows; i++) {
+        for (int i = 1; i <= DATA_ROWS_COUNT; i++) {
             XSSFRow row = mainSheet.getRow(i);
             if (row == null) {
                 row = mainSheet.createRow(i);
@@ -424,12 +456,12 @@ public class AreaTemplateGenerator {
         }
 
         // 9. 设置列宽
-        mainSheet.setColumnWidth(0, 5000);  // 省（显示名称）
-        mainSheet.setColumnWidth(1, 5000);  // 市（显示名称）
-        mainSheet.setColumnWidth(2, 5000);  // 区（显示名称）
+        mainSheet.setColumnWidth(PROVINCE_NAME_COL, COLUMN_WIDTH);  // 省（显示名称）
+        mainSheet.setColumnWidth(CITY_NAME_COL, COLUMN_WIDTH);      // 市（显示名称）
+        mainSheet.setColumnWidth(DISTRICT_NAME_COL, COLUMN_WIDTH);  // 区（显示名称）
 
         // 10. 冻结表头
-        mainSheet.createFreezePane(0, 1);
+        mainSheet.createFreezePane(0, DATA_START_ROW_INDEX + 1);
 
         // 11. 保存文件
         try (FileOutputStream fos = new FileOutputStream(outputPath)) {
@@ -459,14 +491,8 @@ public class AreaTemplateGenerator {
         dataSource.setMaximumPoolSize(5);
 
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        String sql = """
-                SELECT area_id, area_name, area_pid, area_level, sort_index
-                FROM sys_area
-                WHERE area_level IN (2, 3, 4)
-                ORDER BY area_level, sort_index;
-                """;
 
-        List<SysArea> areas = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(SysArea.class));
+        List<SysArea> areas = jdbcTemplate.query(AREA_QUERY_SQL, new BeanPropertyRowMapper<>(SysArea.class));
 
         dataSource.close();
         return areas;
