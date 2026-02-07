@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <!-- 定义日志文件的存储地址及名称 -->
-    <property name="LOG_HOME" value="net/logs"/>
-    <property name="APPLICATION_LOG_NAME" value="net"/>
-    <property name="ERROR_LOG_NAME" value="net.error"/>
+    <property name="LOG_HOME" value="document/logs"/>
+    <property name="APPLICATION_LOG_NAME" value="document"/>
+    <property name="ERROR_LOG_NAME" value="document.error"/>
 
     <!-- 控制台输出 -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <!-- 定义日志文件的存储地址及名称 -->
-    <property name="LOG_HOME" value="logs"/>
+    <property name="LOG_HOME" value="database/logs"/>
     <property name="APPLICATION_LOG_NAME" value="database"/>
     <property name="ERROR_LOG_NAME" value="database.error"/>
 

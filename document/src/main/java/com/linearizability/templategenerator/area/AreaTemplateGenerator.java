@@ -2,6 +2,7 @@ package com.linearizability.templategenerator.area;
 
 import com.linearizability.templategenerator.area.model.SysArea;
 import com.zaxxer.hikari.HikariDataSource;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.DataValidation;
 import org.apache.poi.ss.usermodel.DataValidationConstraint;
 import org.apache.poi.ss.util.CellRangeAddressList;
@@ -32,12 +33,13 @@ import java.util.stream.Collectors;
  * @author ZhangBoyuan
  * @since 2026-02-06
  */
+@Slf4j
 public class AreaTemplateGenerator {
 
     /**
      * Properties实例，用于加载配置
      */
-    private static final Properties props = loadProperties();
+    private static final Properties props = loadProperties(AreaTemplateGenerator.class.getClassLoader());
 
     /**
      * 数据库连接信息
@@ -60,23 +62,32 @@ public class AreaTemplateGenerator {
      */
     private static final String DB_DRIVER = props.getProperty("db.driver");
 
-    // 隐藏工作表名称
+    /**
+     * 隐藏工作表名称
+     */
     private static final String HIDDEN_SHEET_NAME = "AreaData";
-    // 主工作表名称
+
+    /**
+     * 主工作表名称
+     */
     private static final String MAIN_SHEET_NAME = "省市区选择";
+
+    private static final String OUTPUT_PATH = "D://area_template.xlsx";
+    ;
 
     /**
      * 加载配置文件
      */
-    private static Properties loadProperties() {
+    private static Properties loadProperties(ClassLoader classLoader) {
         Properties properties = new Properties();
-        try (InputStream input = AreaTemplateGenerator.class.getClassLoader()
-                .getResourceAsStream("db.properties")) {
+        try (InputStream input = classLoader.getResourceAsStream("db.properties")) {
             if (Objects.isNull(input)) {
+                log.error("无法找到 db.properties 配置文件");
                 throw new RuntimeException("无法找到 db.properties 配置文件");
             }
             properties.load(input);
         } catch (IOException e) {
+            log.error("加载配置文件失败");
             throw new RuntimeException("加载配置文件失败", e);
         }
         return properties;
@@ -87,9 +98,8 @@ public class AreaTemplateGenerator {
      */
     static void main() {
         try {
-            String outputPath = "D://area_template.xlsx";
-            generateExcel(outputPath);
-            System.out.println("生成完成！");
+            generateExcel(OUTPUT_PATH);
+            log.info("生成完成！");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -141,7 +151,7 @@ public class AreaTemplateGenerator {
             List<SysArea> provinceCities = cities.stream()
                     .filter(city -> city.getAreaPid().equals(province.getAreaId()))
                     .sorted(Comparator.comparing(SysArea::getSortIndex))
-                    .collect(Collectors.toList());
+                    .toList();
 
             if (!provinceCities.isEmpty()) {
                 provinceToCityColMap.put(province.getAreaId(), cityStartCol);
@@ -167,7 +177,7 @@ public class AreaTemplateGenerator {
             List<SysArea> cityDistricts = districts.stream()
                     .filter(district -> district.getAreaPid().equals(city.getAreaId()))
                     .sorted(Comparator.comparing(SysArea::getSortIndex))
-                    .collect(Collectors.toList());
+                    .toList();
 
             if (!cityDistricts.isEmpty()) {
                 cityToDistrictColMap.put(city.getAreaId(), districtStartCol);
@@ -211,7 +221,7 @@ public class AreaTemplateGenerator {
             List<SysArea> provinceCities = cities.stream()
                     .filter(city -> city.getAreaPid().equals(province.getAreaId()))
                     .sorted(Comparator.comparing(SysArea::getSortIndex))
-                    .collect(Collectors.toList());
+                    .toList();
 
             if (!provinceCities.isEmpty()) {
                 for (int i = 0; i < provinceCities.size(); i++) {
@@ -293,7 +303,7 @@ public class AreaTemplateGenerator {
                 List<SysArea> cityDistricts = districts.stream()
                         .filter(district -> district.getAreaPid().equals(city.getAreaId()))
                         .sorted(Comparator.comparing(SysArea::getSortIndex))
-                        .collect(Collectors.toList());
+                        .toList();
 
                 int districtCount = cityDistricts.size();
                 // ID列范围（用于VLOOKUP查找ID）
@@ -427,12 +437,12 @@ public class AreaTemplateGenerator {
         }
 
         workbook.close();
-        System.out.println("Excel模板生成成功: " + outputPath);
-        System.out.println("说明：");
-        System.out.println("  - A、B、C列：用户选择省、市、区（显示中文名称，如\"澳门特别行政区\"）");
-        System.out.println("  - D、E、F列：隐藏列，自动存储对应的area_id（程序读取时使用）");
-        System.out.println("  - 用户在下拉列表中选择名称后，D、E、F列会自动提取并存储对应的area_id");
-        System.out.println("  - 程序读取时，从D、E、F列读取area_id值");
+        log.info("Excel模板生成成功: {}", outputPath);
+        log.info("说明：");
+        log.info("  - A、B、C列：用户选择省、市、区（显示中文名称，如\"澳门特别行政区\"）");
+        log.info("  - D、E、F列：隐藏列，自动存储对应的area_id（程序读取时使用）");
+        log.info("  - 用户在下拉列表中选择名称后，D、E、F列会自动提取并存储对应的area_id");
+        log.info("  - 程序读取时，从D、E、F列读取area_id值");
     }
 
     /**
