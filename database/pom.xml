@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.linearizability</groupId>
         <artifactId>swiss-army-knife</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>database</artifactId>
@@ -23,7 +23,7 @@
         <dependency>
             <groupId>com.linearizability</groupId>
             <artifactId>common</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>${revision}</version>
         </dependency>
 
         <dependency>
