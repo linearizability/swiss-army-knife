@@ -11,6 +11,7 @@
     <modules>
         <module>net</module>
         <module>database</module>
+        <module>document</module>
     </modules>
 
     <properties>
@@ -21,6 +22,8 @@
         <slf4j-api.version>2.0.17</slf4j-api.version>
         <logback-classic.version>1.5.25</logback-classic.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
+        <mysql-connector-j.version>9.6.0</mysql-connector-j.version>
+        <HikariCP.version>7.0.2</HikariCP.version>
     </properties>
 
     <dependencyManagement>
@@ -44,6 +47,16 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.mysql</groupId>
+                <artifactId>mysql-connector-j</artifactId>
+                <version>${mysql-connector-j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${HikariCP.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
