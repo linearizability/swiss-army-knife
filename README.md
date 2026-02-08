@@ -6,7 +6,7 @@
 
 建议项目拉取后执行以下命令，避免误操作将私密参数提交至云端
 
-~~~bash
+~~~ bash
 -- 忽略 db-generator.properties 文件后续修改（仅本地）
 git update-index --assume-unchanged common/src/main/resources/db.properties
 
@@ -15,4 +15,11 @@ git ls-files -v | grep '^[[:lower:]]'
 
 -- 取消忽略标记
 git update-index --no-assume-unchanged common/src/main/resources/db.properties
+~~~
+
+# 常用命令
+
+~~~ bash
+-- 删除所有 log 文件
+find . -type f -name "*.log" -delete
 ~~~
