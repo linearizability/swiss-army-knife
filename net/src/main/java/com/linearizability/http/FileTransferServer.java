@@ -80,7 +80,9 @@ public class FileTransferServer {
     private static final String FILENAME_STAR = "filename*";
 
     // ============ 缓冲区与编码常量 ============
-    private static final int BUFFER_SIZE = 1048576; // 1MB 缓冲区，提升大文件传输效率
+    private static final int MB = 1024 * 1024;
+    private static final long PROGRESS_INTERVAL_BYTES = 100L * MB; // 进度回调间隔（100MB）
+    private static final int BUFFER_SIZE = 1 * MB; // 4MB 缓冲区，提升大文件传输效率
     private static final String CHARSET_UTF8 = StandardCharsets.UTF_8.name();
     private static final String CHARSET_ISO_8859_1 = StandardCharsets.ISO_8859_1.name();
 
@@ -89,11 +91,21 @@ public class FileTransferServer {
     private static final ConcurrentHashMap<String, String> contentTypeCache = new ConcurrentHashMap<>();
 
     /**
-     * 流式解析 multipart body，避免一次性将整个请求加载到内存
-     * 使用缓冲流逐块读取，在缓冲区内查找 boundary，提高内存效率
+     * 流式解析 multipart 请求体并保存文件到磁盘。
+     * <p>
+     * 实现要点：
+     * - 使用可配置大小的缓冲区逐块读取，避免一次性将整个请求加载到内存；
+     * - 维护一个 overlap 缓冲以处理边界跨块的情况；
+     * - 在解析到文件部分时逐块写入文件并定期回调上传进度。
+     *
+     * @param in            请求体输入流（multipart/form-data）
+     * @param boundaryBytes multipart 边界字节数组（以 "--" 开头）
+     * @param storage       存储目录
+     * @param progressListener 可选的进度回调（可为 null）
+     * @throws IOException  IO 失败时抛出
      */
-    private static void parseMulitpartStream(InputStream in, byte[] boundaryBytes, Path storage, 
-                                            UploadProgressListener progressListener) throws IOException {
+    private static void parseMulitpartStream(InputStream in, byte[] boundaryBytes, Path storage,
+                                            UploadProgressListener progressListener, long totalRequestBytes) throws IOException {
         byte[] buffer = new byte[BUFFER_SIZE];
         byte[] overlap = new byte[BUFFER_SIZE]; // 存储跨越缓冲区的数据
         int overlapLen = 0;
@@ -101,7 +113,6 @@ public class FileTransferServer {
         long totalBytesRead = 0; // 进度追踪
 
         // 阶段 1: 查找第一个 boundary
-        ByteArrayOutputStream headerBuffer = new ByteArrayOutputStream();
         boolean foundFirstBoundary = false;
 
         while (!foundFirstBoundary && (bytesRead = in.read(buffer)) != -1) {
@@ -180,7 +191,7 @@ public class FileTransferServer {
             String safe = Paths.get(normalized).getFileName().toString();
             Path target = storage.resolve(safe);
 
-            log.info("Received filename raw: {}, normalized: {}", filename, normalized);
+            // 已解析并归一化文件名
 
             long fileDataStart = totalBytesRead - overlapLen; // 文件数据开始位置
             long fileDataLength = 0; // 文件实际数据长度（不含 boundary）
@@ -226,7 +237,7 @@ public class FileTransferServer {
 
                         // 触发进度回调
                         if (progressListener != null && fileDataLength > 0) {
-                            progressListener.onProgress(filename, fileDataStart + fileDataLength, -1);
+                            progressListener.onProgress(filename, fileDataStart + fileDataLength, totalRequestBytes > 0 ? totalRequestBytes : -1);
                         }
 
                         if (isEnd) {
@@ -240,9 +251,9 @@ public class FileTransferServer {
                             fileOut.write(overlap, 0, safeWriteLen);
                             fileDataLength += safeWriteLen;
                             
-                            // 定期触发进度回调（每 10MB 触发一次）
-                            if (progressListener != null && fileDataLength % (10 * 1024 * 1024) < safeWriteLen) {
-                                progressListener.onProgress(filename, fileDataStart + fileDataLength, -1);
+                            // 定期触发进度回调（每 PROGRESS_INTERVAL_BYTES 触发一次）
+                            if (progressListener != null && fileDataLength % PROGRESS_INTERVAL_BYTES < safeWriteLen) {
+                                progressListener.onProgress(filename, fileDataStart + fileDataLength, totalRequestBytes > 0 ? totalRequestBytes : -1);
                             }
                         }
 
@@ -271,6 +282,13 @@ public class FileTransferServer {
     }
 
     // ============ 文件名解析逻辑 ============
+    /**
+     * 从 part headers 中解析出文件名。
+     * 支持常见的 `filename` 参数以及 RFC5987 的 `filename*` 编码。
+     *
+     * @param headers headers 字符串（ISO-8859-1 编码）
+     * @return 解析出的文件名，若未找到返回 null
+     */
     private static String parseFileNameFromHeaders(String headers) {
         for (String line : headers.split(CRLF)) {
             String lower = line.toLowerCase();
@@ -288,6 +306,12 @@ public class FileTransferServer {
         return null;
     }
 
+    /**
+     * 解析 RFC5987 格式的 filename* 参数，支持形如: charset''urlencoded-filename
+     *
+     * @param line 单行 Content-Disposition 内容
+     * @return 解码后的文件名或 null
+     */
     private static String parseRFC5987Filename(String line) {
         int start = line.toLowerCase().indexOf(FILENAME_STAR.toLowerCase() + "=");
         if (start < 0) return null;
@@ -308,6 +332,12 @@ public class FileTransferServer {
         }
     }
 
+    /**
+     * 解析普通的 filename 参数，尝试 UTF-8 百分号解码和 ISO-8859-1 -> UTF-8 转换。
+     *
+     * @param line 包含 filename 的 Content-Disposition 行
+     * @return 解码后的文件名或原始值
+     */
     private static String parseSimpleFilename(String line) {
         int idx = line.toLowerCase().indexOf(FILENAME.toLowerCase() + "=");
         if (idx < 0) return null;
@@ -334,6 +364,13 @@ public class FileTransferServer {
     }
 
     // ============ 文件名归一化逻辑 ============
+    /**
+     * 尝试对文件名进行归一化：优先 URL 解码，再尝试 ISO-8859-1 -> UTF-8 转换以恢复 CJK 字符。
+     * 返回可能更可读的文件名字符串。
+     *
+     * @param fn 原始文件名
+     * @return 归一化后的文件名（若无法转换返回原文）
+     */
     private static String normalizeFilename(String fn) {
         if (fn == null) return null;
         String s = fn;
@@ -376,6 +413,15 @@ public class FileTransferServer {
         return s;
     }
 
+    /**
+     * 在字节数组 outer 中查找 target 的第一次出现位置。
+     * 对较短的 target 使用朴素查找，对较长的 target 使用简化的 Boyer-Moore 算法以提升查找效率。
+     *
+     * @param outer 外部字节数组
+     * @param target 目标字节数组
+     * @param from 起始搜索位置
+     * @return 匹配位置或 -1
+     */
     private static int indexOf(byte[] outer, byte[] target, int from) {
         if (target.length == 0) return from;
         
@@ -426,6 +472,9 @@ public class FileTransferServer {
     }
 
     // ============ 工具方法 ============
+    /**
+     * 读取输入流全部内容到字节数组（仅用于较小资源，如模版文件）。
+     */
     private static byte[] readAll(InputStream in) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         byte[] buf = new byte[BUFFER_SIZE];
@@ -436,11 +485,17 @@ public class FileTransferServer {
         return baos.toByteArray();
     }
 
+    /**
+     * 简单的 HTML 转义，用于在模板中安全显示文件名和 URL。
+     */
     private static String escapeHtml(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
     }
 
+    /**
+     * 将字节数格式化为带单位的字符串，例如 "1.23 MB"。
+     */
     private static String formatBytes(long bytes) {
         if (bytes <= 0) return "0 B";
         final String[] units = new String[]{"B", "KB", "MB", "GB", "TB"};
@@ -449,6 +504,10 @@ public class FileTransferServer {
     }
 
     // ============ 存储路径解析逻辑 ============
+    /**
+     * 解析默认存储目录：优先尝试 resources 下的 data/transfer_storage，其次是用户主目录下的隐藏目录，
+     * 最后回退到当前工作目录下的 transfer_storage。
+     */
     private static String resolveDefaultStorage() {
         // 优先尝试使用 resources 根目录（IDE/target/classes）
         try {
@@ -565,8 +624,14 @@ public class FileTransferServer {
                 }
             };
             
-            // 使用流式解析，带进度追踪
-            parseMulitpartStream(exchange.getRequestBody(), boundary.getBytes(StandardCharsets.ISO_8859_1), storage, progressListener);
+            // 使用流式解析，带进度追踪（尽量提供 Content-Length 以显示百分比）
+            long totalRequestBytes = -1;
+            try {
+                String cl = exchange.getRequestHeaders().getFirst("Content-Length");
+                if (cl != null) totalRequestBytes = Long.parseLong(cl);
+            } catch (Exception ignored) {}
+
+            parseMulitpartStream(exchange.getRequestBody(), boundary.getBytes(StandardCharsets.ISO_8859_1), storage, progressListener, totalRequestBytes);
 
             long endTime = System.currentTimeMillis();
             double elapsedSeconds = (endTime - startTime) / 1000.0;
