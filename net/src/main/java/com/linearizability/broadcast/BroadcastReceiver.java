@@ -1,4 +1,4 @@
-package com.linearizability;
+package com.linearizability.broadcast;
 
 import lombok.extern.slf4j.Slf4j;
 

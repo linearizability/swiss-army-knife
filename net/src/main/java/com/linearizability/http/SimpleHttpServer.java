@@ -1,4 +1,4 @@
-package com.linearizability;
+package com.linearizability.http;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
