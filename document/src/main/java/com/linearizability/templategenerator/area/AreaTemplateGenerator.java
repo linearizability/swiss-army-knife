@@ -88,7 +88,9 @@ public class AreaTemplateGenerator {
             generateExcel(OUTPUT_PATH);
             log.info("生成完成！");
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("生成Excel模板文件失败", e);
+        } finally {
+            DatabaseUtil.closeDataSource();
         }
     }
 
