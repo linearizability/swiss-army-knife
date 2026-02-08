@@ -31,6 +31,18 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class FileTransferServer {
 
+    // ============ 上传进度监听接口 ============
+    @FunctionalInterface
+    public interface UploadProgressListener {
+        /**
+         * 上传进度回调
+         * @param filename 文件名
+         * @param bytesTransferred 已传输字节数
+         * @param totalBytes 总字节数（可能为 -1 表示未知）
+         */
+        void onProgress(String filename, long bytesTransferred, long totalBytes);
+    }
+
     // ============ 服务器配置常量 ============
     private static final int DEFAULT_PORT = 8080;
     private static final String DEFAULT_STORAGE_SUFFIX = "data/transfer_storage";
@@ -80,17 +92,20 @@ public class FileTransferServer {
      * 流式解析 multipart body，避免一次性将整个请求加载到内存
      * 使用缓冲流逐块读取，在缓冲区内查找 boundary，提高内存效率
      */
-    private static void parseMulitpartStream(InputStream in, byte[] boundaryBytes, Path storage) throws IOException {
+    private static void parseMulitpartStream(InputStream in, byte[] boundaryBytes, Path storage, 
+                                            UploadProgressListener progressListener) throws IOException {
         byte[] buffer = new byte[BUFFER_SIZE];
         byte[] overlap = new byte[BUFFER_SIZE]; // 存储跨越缓冲区的数据
         int overlapLen = 0;
         int bytesRead;
+        long totalBytesRead = 0; // 进度追踪
 
         // 阶段 1: 查找第一个 boundary
         ByteArrayOutputStream headerBuffer = new ByteArrayOutputStream();
         boolean foundFirstBoundary = false;
 
         while (!foundFirstBoundary && (bytesRead = in.read(buffer)) != -1) {
+            totalBytesRead += bytesRead;
             byte[] searchBuf = new byte[overlapLen + bytesRead];
             System.arraycopy(overlap, 0, searchBuf, 0, overlapLen);
             System.arraycopy(buffer, 0, searchBuf, overlapLen, bytesRead);
@@ -145,6 +160,7 @@ public class FileTransferServer {
                 }
 
                 if (!foundHeaderEnd && (bytesRead = in.read(buffer)) != -1) {
+                    totalBytesRead += bytesRead;
                     System.arraycopy(buffer, 0, overlap, overlapLen, bytesRead);
                     overlapLen += bytesRead;
                 } else if (!foundHeaderEnd) {
@@ -166,6 +182,9 @@ public class FileTransferServer {
 
             log.info("Received filename raw: {}, normalized: {}", filename, normalized);
 
+            long fileDataStart = totalBytesRead - overlapLen; // 文件数据开始位置
+            long fileDataLength = 0; // 文件实际数据长度（不含 boundary）
+
             try (OutputStream fileOut = Files.newOutputStream(target)) {
                 boolean foundNextBoundary = false;
 
@@ -182,6 +201,7 @@ public class FileTransferServer {
                         }
                         if (writeLen > 0) {
                             fileOut.write(overlap, 0, writeLen);
+                            fileDataLength += writeLen;
                         }
 
                         foundNextBoundary = true;
@@ -204,8 +224,13 @@ public class FileTransferServer {
                             System.arraycopy(overlap, nextPos, overlap, 0, overlapLen);
                         }
 
+                        // 触发进度回调
+                        if (progressListener != null && fileDataLength > 0) {
+                            progressListener.onProgress(filename, fileDataStart + fileDataLength, -1);
+                        }
+
                         if (isEnd) {
-                            log.info("Saved: {}", target);
+                            log.info("Saved: {} ({} bytes)", target, fileDataLength);
                             return; // 文件传输结束
                         }
                     } else {
@@ -213,10 +238,17 @@ public class FileTransferServer {
                         int safeWriteLen = Math.max(0, overlapLen - boundaryBytes.length + 1);
                         if (safeWriteLen > 0) {
                             fileOut.write(overlap, 0, safeWriteLen);
+                            fileDataLength += safeWriteLen;
+                            
+                            // 定期触发进度回调（每 10MB 触发一次）
+                            if (progressListener != null && fileDataLength % (10 * 1024 * 1024) < safeWriteLen) {
+                                progressListener.onProgress(filename, fileDataStart + fileDataLength, -1);
+                            }
                         }
 
                         // 读取下一块数据
                         if ((bytesRead = in.read(buffer)) != -1) {
+                            totalBytesRead += bytesRead;
                             System.arraycopy(overlap, safeWriteLen, overlap, 0, overlapLen - safeWriteLen);
                             overlapLen = overlapLen - safeWriteLen;
                             System.arraycopy(buffer, 0, overlap, overlapLen, bytesRead);
@@ -225,6 +257,7 @@ public class FileTransferServer {
                             // 流意外结束
                             if (overlapLen > 0) {
                                 fileOut.write(overlap, 0, overlapLen);
+                                fileDataLength += overlapLen;
                             }
                             log.warn("Stream ended unexpectedly while reading file: {}", filename);
                             return;
@@ -232,7 +265,7 @@ public class FileTransferServer {
                     }
                 }
 
-                log.info("Saved: {}", target);
+                log.info("Saved: {} ({} bytes)", target, fileDataLength);
             }
         }
     }
@@ -344,13 +377,51 @@ public class FileTransferServer {
     }
 
     private static int indexOf(byte[] outer, byte[] target, int from) {
-        outer:
-        for (int i = from; i <= outer.length - target.length; i++) {
-            for (int j = 0; j < target.length; j++) {
-                if (outer[i + j] != target[j]) continue outer;
+        if (target.length == 0) return from;
+        
+        // 对短 target 使用简单算法
+        if (target.length < 4) {
+            outer:
+            for (int i = from; i <= outer.length - target.length; i++) {
+                for (int j = 0; j < target.length; j++) {
+                    if (outer[i + j] != target[j]) continue outer;
+                }
+                return i;
             }
-            return i;
+            return -1;
         }
+        
+        // 对长 target 使用优化的查找（Boyer-Moore 简化版）
+        int outerLen = outer.length;
+        int targetLen = target.length;
+        
+        // 构建 bad character 表（仅对最后一个字符）
+        int[] badCharShift = new int[256];
+        for (int i = 0; i < 256; i++) {
+            badCharShift[i] = targetLen;
+        }
+        for (int i = 0; i < targetLen - 1; i++) {
+            badCharShift[target[i] & 0xFF] = targetLen - 1 - i;
+        }
+        
+        int i = from + targetLen - 1;
+        while (i < outerLen) {
+            int j = targetLen - 1;
+            int k = i;
+            
+            while (j >= 0 && outer[k] == target[j]) {
+                j--;
+                k--;
+            }
+            
+            if (j < 0) {
+                return k + 1; // 找到匹配
+            }
+            
+            int shift = badCharShift[outer[i] & 0xFF];
+            i += shift;
+        }
+        
         return -1;
     }
 
@@ -368,6 +439,13 @@ public class FileTransferServer {
     private static String escapeHtml(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes <= 0) return "0 B";
+        final String[] units = new String[]{"B", "KB", "MB", "GB", "TB"};
+        int digitGroups = (int) (Math.log10(bytes) / Math.log10(1024));
+        return String.format("%.2f %s", bytes / Math.pow(1024, digitGroups), units[digitGroups]);
     }
 
     // ============ 存储路径解析逻辑 ============
@@ -471,12 +549,28 @@ public class FileTransferServer {
             }
 
             String boundary = BOUNDARY_PREFIX + contentType.substring(contentType.indexOf(BOUNDARY_PARAM) + BOUNDARY_PARAM.length());
-            // 直接使用流式解析，避免一次性加载整个请求到内存
-            parseMulitpartStream(exchange.getRequestBody(), boundary.getBytes(StandardCharsets.ISO_8859_1), storage);
+            
+            // 进度追踪监听器：记录实时进度
+            UploadProgressListener progressListener = (filename, bytesTransferred, totalBytes) -> {
+                double percent = totalBytes > 0 ? (bytesTransferred * 100.0 / totalBytes) : -1;
+                long timeElapsed = System.currentTimeMillis() - startTime;
+                double speedMBps = timeElapsed > 0 ? (bytesTransferred / 1024.0 / 1024.0) / (timeElapsed / 1000.0) : 0;
+                if (percent > 0) {
+                    log.info("Upload Progress - {}: {}/{}  {}%  Speed: {} MB/s", 
+                        filename, formatBytes(bytesTransferred), formatBytes(totalBytes), 
+                        String.format("%.1f", percent), String.format("%.2f", speedMBps));
+                } else {
+                    log.info("Upload Progress - {}: {}  Speed: {} MB/s", 
+                        filename, formatBytes(bytesTransferred), String.format("%.2f", speedMBps));
+                }
+            };
+            
+            // 使用流式解析，带进度追踪
+            parseMulitpartStream(exchange.getRequestBody(), boundary.getBytes(StandardCharsets.ISO_8859_1), storage, progressListener);
 
             long endTime = System.currentTimeMillis();
             double elapsedSeconds = (endTime - startTime) / 1000.0;
-            log.info("Upload completed in {} seconds", elapsedSeconds);
+            log.info("Upload completed in {} seconds", String.format("%.2f", elapsedSeconds));
 
             exchange.getResponseHeaders().set(HEADER_LOCATION, CONTEXT_ROOT);
             exchange.sendResponseHeaders(302, -1);
