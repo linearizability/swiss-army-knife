@@ -72,6 +72,7 @@ public class DatabaseUtil {
     public static void getPoolStatus() {
         if (Objects.isNull(DATA_SOURCE)) {
             log.info("连接池未初始化");
+            return;
         }
 
         log.info("数据库连接池状态：活跃连接数-{}, 空闲连接数-{}, 总连接数-{}",
