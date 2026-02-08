@@ -2,10 +2,12 @@ package com.linearizability.database;
 
 import com.linearizability.properties.PropertiesUtil;
 import com.zaxxer.hikari.HikariDataSource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
 
 /**
@@ -14,54 +16,122 @@ import java.util.Properties;
  * @author ZhangBoyuan
  * @since 2026-02-07
  */
+@Slf4j
 public class DatabaseUtil {
 
     /**
-     * Properties实例，用于加载配置
+     * 单例数据源实例
      */
-    private static final Properties props = PropertiesUtil.loadDbProperties();
+    private static volatile HikariDataSource DATA_SOURCE;
 
     /**
-     * 数据库连接信息
-     *
+     * 双重检查锁定获取数据源
      */
-    private static final String DB_URL = props.getProperty("db.url");
-
-    /**
-     * 数据库用户名
-     */
-    private static final String DB_USERNAME = props.getProperty("db.username");
-
-    /**
-     * 数据库密码
-     */
-    private static final String DB_PASSWORD = props.getProperty("db.password");
-
-    /**
-     * 数据库驱动
-     */
-    private static final String DB_DRIVER = props.getProperty("db.driver");
-
     public static HikariDataSource getDataSource() {
-        HikariDataSource result = new HikariDataSource();
-        result.setJdbcUrl(DB_URL);
-        result.setUsername(DB_USERNAME);
-        result.setPassword(DB_PASSWORD);
-        result.setDriverClassName(DB_DRIVER);
-        result.setMaximumPoolSize(5);
-        return result;
+        if (Objects.isNull(DATA_SOURCE)) {
+            synchronized (DatabaseUtil.class) {
+                if (Objects.isNull(DATA_SOURCE)) {
+                    try {
+                        Properties props = PropertiesUtil.loadDbProperties();
+                        DATA_SOURCE = new HikariDataSource();
+                        DATA_SOURCE.setJdbcUrl(props.getProperty("db.url"));
+                        DATA_SOURCE.setUsername(props.getProperty("db.username"));
+                        DATA_SOURCE.setPassword(props.getProperty("db.password"));
+                        DATA_SOURCE.setDriverClassName(props.getProperty("db.driver"));
+                        DATA_SOURCE.setMaximumPoolSize(10);
+                        DATA_SOURCE.setMinimumIdle(2);
+                        DATA_SOURCE.setConnectionTimeout(30000);
+                        DATA_SOURCE.setIdleTimeout(600000);
+                        DATA_SOURCE.setMaxLifetime(1800000);
+                        log.info("数据库连接池初始化成功");
+                    } catch (Exception e) {
+                        log.error("数据库连接池初始化失败", e);
+                        throw new RuntimeException("数据库连接池初始化失败", e);
+                    }
+                }
+            }
+        }
+        return DATA_SOURCE;
     }
 
-    public static JdbcTemplate getJdbcTemplate(HikariDataSource dataSource) {
-        return new JdbcTemplate(dataSource);
+    /**
+     * 获取JdbcTemplate实例
+     */
+    public static JdbcTemplate getJdbcTemplate() {
+        return new JdbcTemplate(getDataSource());
     }
 
+    /**
+     * 关闭数据源
+     */
+    public static void closeDataSource() {
+        if (DATA_SOURCE != null && !DATA_SOURCE.isClosed()) {
+            try {
+                DATA_SOURCE.close();
+                log.info("数据库连接池已关闭");
+            } catch (Exception e) {
+                log.error("关闭数据库连接池失败", e);
+            } finally {
+                DATA_SOURCE = null;
+            }
+        }
+    }
+
+    /**
+     * 获取连接池状态信息
+     */
+    public static void getPoolStatus() {
+        if (Objects.isNull(DATA_SOURCE)) {
+            log.info("连接池未初始化");
+        }
+
+        log.info("数据库连接池状态：活跃连接数-{}, 空闲连接数-{}, 总连接数-{}",
+                DATA_SOURCE.getHikariPoolMXBean().getActiveConnections(),
+                DATA_SOURCE.getHikariPoolMXBean().getIdleConnections(),
+                DATA_SOURCE.getHikariPoolMXBean().getTotalConnections()
+        );
+    }
+
+    /**
+     * 执行查询并返回结果列表
+     */
     public static <T> List<T> getList(String sql, Class<T> tClass) {
-        HikariDataSource dataSource = getDataSource();
-        JdbcTemplate jdbcTemplate = getJdbcTemplate(dataSource);
-        List<T> result = jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(tClass));
-        dataSource.close();
-        return result;
+        try {
+            JdbcTemplate jdbcTemplate = getJdbcTemplate();
+            log.info("执行SQL查询: {}", sql);
+            return jdbcTemplate.query(sql, new BeanPropertyRowMapper<>(tClass));
+        } catch (Exception e) {
+            log.error("执行SQL查询失败: {}", sql, e);
+            throw new RuntimeException("数据库查询失败", e);
+        }
+    }
+
+    /**
+     * 执行查询并返回单个结果
+     */
+    public static <T> T getOne(String sql, Class<T> tClass) {
+        try {
+            JdbcTemplate jdbcTemplate = getJdbcTemplate();
+            log.info("执行SQL查询(单条): {}", sql);
+            return jdbcTemplate.queryForObject(sql, new BeanPropertyRowMapper<>(tClass));
+        } catch (Exception e) {
+            log.error("执行SQL查询失败: {}", sql, e);
+            throw new RuntimeException("数据库查询失败", e);
+        }
+    }
+
+    /**
+     * 执行更新操作
+     */
+    public static int update(String sql) {
+        try {
+            JdbcTemplate jdbcTemplate = getJdbcTemplate();
+            log.info("执行SQL更新: {}", sql);
+            return jdbcTemplate.update(sql);
+        } catch (Exception e) {
+            log.error("执行SQL更新失败: {}", sql, e);
+            throw new RuntimeException("数据库更新失败", e);
+        }
     }
 
 }
