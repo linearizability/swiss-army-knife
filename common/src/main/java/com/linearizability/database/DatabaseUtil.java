@@ -85,7 +85,7 @@ public class DatabaseUtil {
      * 关闭数据源
      */
     public static void closeDataSource() {
-        if (DATA_SOURCE != null && !DATA_SOURCE.isClosed()) {
+        if (Objects.nonNull(DATA_SOURCE) && !DATA_SOURCE.isClosed()) {
             try {
                 DATA_SOURCE.close();
                 log.info("数据库连接池已关闭");
