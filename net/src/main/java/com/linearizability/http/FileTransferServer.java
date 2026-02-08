@@ -19,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -69,7 +68,7 @@ public class FileTransferServer {
     private static final String FILENAME_STAR = "filename*";
 
     // ============ 缓冲区与编码常量 ============
-    private static final int BUFFER_SIZE = 65536; // 64KB 缓冲区，提升大文件传输效率
+    private static final int BUFFER_SIZE = 1048576; // 1MB 缓冲区，提升大文件传输效率
     private static final String CHARSET_UTF8 = StandardCharsets.UTF_8.name();
     private static final String CHARSET_ISO_8859_1 = StandardCharsets.ISO_8859_1.name();
 
@@ -77,80 +76,163 @@ public class FileTransferServer {
     // Content-Type 缓存：避免重复检测文件类型，提升下载响应速度
     private static final ConcurrentHashMap<String, String> contentTypeCache = new ConcurrentHashMap<>();
 
-    // ============ 存储路径解析逻辑 ============
-    private static String resolveDefaultStorage() {
-        // 优先尝试使用 resources 根目录（IDE/target/classes）
-        try {
-            java.net.URL url = FileTransferServer.class.getResource("/");
-            if (url != null && "file".equalsIgnoreCase(url.getProtocol())) {
-                try {
-                    Path resRoot = Paths.get(url.toURI());
-                    Path candidate = resRoot.resolve(DEFAULT_STORAGE_SUFFIX);
-                    // 尝试创建目录以验证可写性
-                    Files.createDirectories(candidate);
-                    return candidate.toString();
-                } catch (Exception ignore) {
-                    // 资源目录不可写，进入回退流程
+    /**
+     * 流式解析 multipart body，避免一次性将整个请求加载到内存
+     * 使用缓冲流逐块读取，在缓冲区内查找 boundary，提高内存效率
+     */
+    private static void parseMulitpartStream(InputStream in, byte[] boundaryBytes, Path storage) throws IOException {
+        byte[] buffer = new byte[BUFFER_SIZE];
+        byte[] overlap = new byte[BUFFER_SIZE]; // 存储跨越缓冲区的数据
+        int overlapLen = 0;
+        int bytesRead;
+
+        // 阶段 1: 查找第一个 boundary
+        ByteArrayOutputStream headerBuffer = new ByteArrayOutputStream();
+        boolean foundFirstBoundary = false;
+
+        while (!foundFirstBoundary && (bytesRead = in.read(buffer)) != -1) {
+            byte[] searchBuf = new byte[overlapLen + bytesRead];
+            System.arraycopy(overlap, 0, searchBuf, 0, overlapLen);
+            System.arraycopy(buffer, 0, searchBuf, overlapLen, bytesRead);
+
+            int boundaryIdx = indexOf(searchBuf, boundaryBytes, 0);
+            if (boundaryIdx >= 0) {
+                foundFirstBoundary = true;
+                // 跳过 boundary 并调整缓冲区位置
+                int startPos = boundaryIdx + boundaryBytes.length;
+                if (startPos + 2 <= searchBuf.length && searchBuf[startPos] == '\r' && searchBuf[startPos + 1] == '\n') {
+                    startPos += 2;
+                }
+                // 保存剩余数据到 overlap
+                overlapLen = searchBuf.length - startPos;
+                if (overlapLen > 0) {
+                    System.arraycopy(searchBuf, startPos, overlap, 0, overlapLen);
+                }
+            } else {
+                // 保存可能跨越缓冲区的数据
+                overlapLen = Math.min(bytesRead, boundaryBytes.length - 1);
+                if (overlapLen > 0) {
+                    System.arraycopy(buffer, bytesRead - overlapLen, overlap, 0, overlapLen);
                 }
             }
-        } catch (Exception ignore) {
         }
 
-        // 回退1：用户主目录下的隐藏目录
-        try {
-            Path fb = Paths.get(DEFAULT_STORAGE_FALLBACK);
-            Files.createDirectories(fb);
-            return fb.toString();
-        } catch (Exception e) {
-        }
+        if (!foundFirstBoundary) return;
 
-        // 回退2：当前工作目录
-        return Paths.get("transfer_storage").toAbsolutePath().toString();
-    }
-
-    // ============ Multipart 解析逻辑 ============
-    private static void parseMulitpartBody(byte[] body, byte[] boundaryBytes, Path storage) throws IOException {
-        int pos = indexOf(body, boundaryBytes, 0);
-        if (pos < 0) return;
-        pos += boundaryBytes.length;
-
+        // 阶段 2: 循环处理每个 part
         while (true) {
-            // 跳过 CRLF
-            if (pos + 2 <= body.length && body[pos] == '\r' && body[pos + 1] == '\n') {
-                pos += 2;
+            ByteArrayOutputStream partBuffer = new ByteArrayOutputStream();
+            boolean foundHeaderEnd = false;
+
+            // 收集 headers（直到 CRLF CRLF）
+            while (!foundHeaderEnd) {
+                if (overlapLen > 0) {
+                    int crlfcrlfIdx = indexOf(overlap, CRLF_CRLF_BYTES, 0);
+                    if (crlfcrlfIdx >= 0) {
+                        partBuffer.write(overlap, 0, crlfcrlfIdx);
+                        foundHeaderEnd = true;
+                        // 跳过 headers 和 CRLF CRLF，保存剩余数据
+                        int dataStart = crlfcrlfIdx + CRLF_CRLF_BYTES.length;
+                        overlapLen = overlapLen - dataStart;
+                        if (overlapLen > 0) {
+                            System.arraycopy(overlap, dataStart, overlap, 0, overlapLen);
+                        }
+                        break;
+                    } else {
+                        partBuffer.write(overlap, 0, overlapLen);
+                        overlapLen = 0;
+                    }
+                }
+
+                if (!foundHeaderEnd && (bytesRead = in.read(buffer)) != -1) {
+                    System.arraycopy(buffer, 0, overlap, overlapLen, bytesRead);
+                    overlapLen += bytesRead;
+                } else if (!foundHeaderEnd) {
+                    return; // 流结束
+                }
             }
 
-            // 查找下一个 boundary
-            int next = indexOf(body, boundaryBytes, pos);
-            if (next < 0) break;
-
-            // 查找 headers 和 body 的分界 CRLF CRLF
-            int headerEnd = indexOf(body, CRLF_CRLF_BYTES, pos);
-            if (headerEnd < 0 || headerEnd > next) break;
-
-            // 解析 headers 获取文件名
-            String headers = new String(body, pos, headerEnd - pos, StandardCharsets.ISO_8859_1);
+            String headers = partBuffer.toString(CHARSET_ISO_8859_1);
             String filename = parseFileNameFromHeaders(headers);
 
-            // 计算文件数据范围
-            int dataStart = headerEnd + CRLF_CRLF_BYTES.length;
-            int dataEnd = next - CRLF_BYTES.length; // 去掉 boundary 前的 CRLF
-
-            if (dataEnd >= dataStart && filename != null && !filename.isEmpty()) {
-                String normalized = normalizeFilename(filename);
-                String safe = Paths.get(normalized).getFileName().toString();
-                Path target = storage.resolve(safe);
-                log.info("Received filename raw: {}, normalized: {}", filename, normalized);
-                Files.write(target, Arrays.copyOfRange(body, dataStart, dataEnd));
-                log.info("Saved: {}", target);
+            if (filename == null || filename.isEmpty()) {
+                break;
             }
 
-            // 移到下一个 boundary
-            pos = next + boundaryBytes.length;
+            // 阶段 3: 读取文件数据（直到下一个 boundary）
+            String normalized = normalizeFilename(filename);
+            String safe = Paths.get(normalized).getFileName().toString();
+            Path target = storage.resolve(safe);
 
-            // 检查是否为最后一个 boundary（以 -- 结尾）
-            if (pos + 2 <= body.length && body[pos] == '-' && body[pos + 1] == '-') {
-                break;
+            log.info("Received filename raw: {}, normalized: {}", filename, normalized);
+
+            try (OutputStream fileOut = Files.newOutputStream(target)) {
+                boolean foundNextBoundary = false;
+
+                while (!foundNextBoundary) {
+                    // 在缓冲区中查找 boundary
+                    int boundaryIdx = indexOf(overlap, boundaryBytes, 0);
+
+                    if (boundaryIdx >= 0) {
+                        // 写入 boundary 前的数据（去掉最后的 CRLF）
+                        int writeLen = boundaryIdx;
+                        if (writeLen >= CRLF_BYTES.length &&
+                                overlap[writeLen - 2] == '\r' && overlap[writeLen - 1] == '\n') {
+                            writeLen -= CRLF_BYTES.length;
+                        }
+                        if (writeLen > 0) {
+                            fileOut.write(overlap, 0, writeLen);
+                        }
+
+                        foundNextBoundary = true;
+
+                        // 跳过 boundary，检查是否为结束标记 (--boundary--)
+                        int nextPos = boundaryIdx + boundaryBytes.length;
+                        boolean isEnd = false;
+                        if (nextPos + 2 <= overlapLen && overlap[nextPos] == '-' && overlap[nextPos + 1] == '-') {
+                            isEnd = true;
+                            nextPos += 2;
+                        }
+
+                        // 跳过后续的 CRLF
+                        if (nextPos + 2 <= overlapLen && overlap[nextPos] == '\r' && overlap[nextPos + 1] == '\n') {
+                            nextPos += 2;
+                        }
+
+                        overlapLen = overlapLen - nextPos;
+                        if (overlapLen > 0) {
+                            System.arraycopy(overlap, nextPos, overlap, 0, overlapLen);
+                        }
+
+                        if (isEnd) {
+                            log.info("Saved: {}", target);
+                            return; // 文件传输结束
+                        }
+                    } else {
+                        // 保留可能跨越缓冲区的 boundary
+                        int safeWriteLen = Math.max(0, overlapLen - boundaryBytes.length + 1);
+                        if (safeWriteLen > 0) {
+                            fileOut.write(overlap, 0, safeWriteLen);
+                        }
+
+                        // 读取下一块数据
+                        if ((bytesRead = in.read(buffer)) != -1) {
+                            System.arraycopy(overlap, safeWriteLen, overlap, 0, overlapLen - safeWriteLen);
+                            overlapLen = overlapLen - safeWriteLen;
+                            System.arraycopy(buffer, 0, overlap, overlapLen, bytesRead);
+                            overlapLen += bytesRead;
+                        } else {
+                            // 流意外结束
+                            if (overlapLen > 0) {
+                                fileOut.write(overlap, 0, overlapLen);
+                            }
+                            log.warn("Stream ended unexpectedly while reading file: {}", filename);
+                            return;
+                        }
+                    }
+                }
+
+                log.info("Saved: {}", target);
             }
         }
     }
@@ -288,6 +370,37 @@ public class FileTransferServer {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
     }
 
+    // ============ 存储路径解析逻辑 ============
+    private static String resolveDefaultStorage() {
+        // 优先尝试使用 resources 根目录（IDE/target/classes）
+        try {
+            java.net.URL url = FileTransferServer.class.getResource("/");
+            if (url != null && "file".equalsIgnoreCase(url.getProtocol())) {
+                try {
+                    Path resRoot = Paths.get(url.toURI());
+                    Path candidate = resRoot.resolve(DEFAULT_STORAGE_SUFFIX);
+                    // 尝试创建目录以验证可写性
+                    Files.createDirectories(candidate);
+                    return candidate.toString();
+                } catch (Exception ignore) {
+                    // 资源目录不可写，进入回退流程
+                }
+            }
+        } catch (Exception ignore) {
+        }
+
+        // 回退1：用户主目录下的隐藏目录
+        try {
+            Path fb = Paths.get(DEFAULT_STORAGE_FALLBACK);
+            Files.createDirectories(fb);
+            return fb.toString();
+        } catch (Exception e) {
+        }
+
+        // 回退2：当前工作目录
+        return Paths.get("transfer_storage").toAbsolutePath().toString();
+    }
+
     static class RootHandler implements HttpHandler {
         private final Path storage;
         private final String template;
@@ -345,6 +458,8 @@ public class FileTransferServer {
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            long startTime = System.currentTimeMillis();
+
             if (!HTTP_POST.equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
@@ -356,8 +471,12 @@ public class FileTransferServer {
             }
 
             String boundary = BOUNDARY_PREFIX + contentType.substring(contentType.indexOf(BOUNDARY_PARAM) + BOUNDARY_PARAM.length());
-            byte[] body = readAll(exchange.getRequestBody());
-            parseMulitpartBody(body, boundary.getBytes(StandardCharsets.ISO_8859_1), storage);
+            // 直接使用流式解析，避免一次性加载整个请求到内存
+            parseMulitpartStream(exchange.getRequestBody(), boundary.getBytes(StandardCharsets.ISO_8859_1), storage);
+
+            long endTime = System.currentTimeMillis();
+            double elapsedSeconds = (endTime - startTime) / 1000.0;
+            log.info("Upload completed in {} seconds", elapsedSeconds);
 
             exchange.getResponseHeaders().set(HEADER_LOCATION, CONTEXT_ROOT);
             exchange.sendResponseHeaders(302, -1);
