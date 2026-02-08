@@ -16,42 +16,43 @@ import java.util.Properties;
 @Slf4j
 public class PropertiesUtil {
 
+    /**
+     * 数据库配置文件
+     */
     private static final String DB_PROPERTIES = "db.properties";
 
     /**
-     * 加载配置文件
+     * 加载数据库配置文件
      */
-    public static <T> Properties load(Class<T> clazz, String fileName) {
+    public static Properties loadDbProperties() {
+        return load(PropertiesUtil.class, DB_PROPERTIES);
+    }
+
+    /**
+     * 加载配置文件（通过指定类的ClassLoader）
+     */
+    public static Properties load(Class<?> clazz, String fileName) {
+        return loadWithClass(clazz, fileName);
+    }
+
+    /**
+     * 核心加载逻辑
+     */
+    private static Properties loadWithClass(Class<?> clazz, String fileName) {
         log.info("开始加载 {} 配置文件", fileName);
         Properties properties = new Properties();
         try (InputStream input = clazz.getClassLoader().getResourceAsStream(fileName)) {
             if (Objects.isNull(input)) {
-                log.error("无法找到 {} 配置文件", fileName);
-                throw new RuntimeException("无法找到 %s 配置文件".formatted(fileName));
+                String errorMsg = "无法找到配置文件: %s (通过类 %s 加载)".formatted(fileName, clazz.getSimpleName());
+                log.error(errorMsg);
+                throw new RuntimeException(errorMsg);
             }
             properties.load(input);
+            log.info("成功加载配置文件: {}", fileName);
         } catch (IOException e) {
-            log.error("加载配置文件失败");
-            throw new RuntimeException("加载配置文件失败", e);
-        }
-        return properties;
-    }
-
-    /**
-     * 加载配置文件
-     */
-    public static Properties loadDbProperties() {
-        log.info("开始加载 {} 配置文件", DB_PROPERTIES);
-        Properties properties = new Properties();
-        try (InputStream input = PropertiesUtil.class.getClassLoader().getResourceAsStream(DB_PROPERTIES)) {
-            if (Objects.isNull(input)) {
-                log.error("无法找到 {} 配置文件", DB_PROPERTIES);
-                throw new RuntimeException("无法找到 %s 配置文件".formatted(DB_PROPERTIES));
-            }
-            properties.load(input);
-        } catch (IOException e) {
-            log.error("加载配置文件失败");
-            throw new RuntimeException("加载配置文件失败", e);
+            String errorMsg = "读取配置文件失败: %s (通过类 %s 加载)".formatted(fileName, clazz.getSimpleName());
+            log.error(errorMsg, e);
+            throw new RuntimeException(errorMsg, e);
         }
         return properties;
     }
