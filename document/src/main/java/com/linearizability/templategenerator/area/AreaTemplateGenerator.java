@@ -1,16 +1,12 @@
 package com.linearizability.templategenerator.area;
 
 import com.linearizability.database.DatabaseUtil;
-import com.linearizability.properties.PropertiesUtil;
 import com.linearizability.templategenerator.area.model.SysArea;
-import com.zaxxer.hikari.HikariDataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.DataValidation;
 import org.apache.poi.ss.usermodel.DataValidationConstraint;
 import org.apache.poi.ss.util.CellRangeAddressList;
 import org.apache.poi.xssf.usermodel.*;
-import org.springframework.jdbc.core.BeanPropertyRowMapper;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -36,32 +32,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 public class AreaTemplateGenerator {
-
-    /**
-     * Properties实例，用于加载配置
-     */
-    private static final Properties props = PropertiesUtil.load(AreaTemplateGenerator.class, "db.properties");
-
-    /**
-     * 数据库连接信息
-     *
-     */
-    private static final String DB_URL = props.getProperty("db.url");
-
-    /**
-     * 数据库用户名
-     */
-    private static final String DB_USERNAME = props.getProperty("db.username");
-
-    /**
-     * 数据库密码
-     */
-    private static final String DB_PASSWORD = props.getProperty("db.password");
-
-    /**
-     * 数据库驱动
-     */
-    private static final String DB_DRIVER = props.getProperty("db.driver");
 
     /**
      * 隐藏工作表名称
@@ -466,14 +436,7 @@ public class AreaTemplateGenerator {
      * @return 区域数据列表
      */
     private static List<SysArea> queryAreaData() {
-        HikariDataSource dataSource = new HikariDataSource();
-        dataSource.setJdbcUrl(DB_URL);
-        dataSource.setUsername(DB_USERNAME);
-        dataSource.setPassword(DB_PASSWORD);
-        dataSource.setDriverClassName(DB_DRIVER);
-        dataSource.setMaximumPoolSize(5);
-
-        return DatabaseUtil.getList(dataSource, AREA_QUERY_SQL, SysArea.class);
+        return DatabaseUtil.getList(AREA_QUERY_SQL, SysArea.class);
     }
 
     /**

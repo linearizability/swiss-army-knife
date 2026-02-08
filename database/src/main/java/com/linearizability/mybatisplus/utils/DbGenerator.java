@@ -26,27 +26,29 @@ public class DbGenerator {
     /**
      * Properties实例，用于加载配置
      */
+    private static final Properties DB_PROPERTIES = PropertiesUtil.loadDbProperties();
+
     private static final Properties props = PropertiesUtil.load(DbGenerator.class, "db-generator.properties");
 
     /**
      * 数据库连接URL
      */
-    private static final String JDBC_URL = props.getProperty("db.url");
+    private static final String JDBC_URL = DB_PROPERTIES.getProperty("db.url");
 
     /**
      * 数据库用户名
      */
-    private static final String DB_USER_NAME = props.getProperty("db.username");
+    private static final String DB_USER_NAME = DB_PROPERTIES.getProperty("db.username");
 
     /**
      * 数据库密码
      */
-    private static final String DB_PASSWORD = props.getProperty("db.password");
+    private static final String DB_PASSWORD = DB_PROPERTIES.getProperty("db.password");
 
     /**
      * 数据库驱动
      */
-    private static final String DB_DRIVER = props.getProperty("db.driver", "com.mysql.cj.jdbc.Driver");
+    private static final String DB_DRIVER = DB_PROPERTIES.getProperty("db.driver", "com.mysql.cj.jdbc.Driver");
 
     /**
      * 生成代码的包名
