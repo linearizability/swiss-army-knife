@@ -106,6 +106,16 @@ public class DbGenerator {
     private static final String MAPPER_TEMPLATE_PATH = props.getProperty("mapper.template.path");
 
     /**
+     * Service包名
+     */
+    private static final String SERVICE_PACKAGE_NAME = props.getProperty("service.package.name");
+
+    /**
+     * Service实现类包名
+     */
+    private static final String SERVICE_IMPL_PACKAGE_NAME = props.getProperty("service.impl.package.name");
+
+    /**
      * 父类中已存在的字段（需填写数据库字段而非类字段），生成时会排除这些字段；没有可修改为空列表
      */
     private static final String[] SUPER_ENTITY_COLUMNS = parsePropertyArray(props.getProperty("super.entity.columns"));
@@ -170,8 +180,8 @@ public class DbGenerator {
         PackageConfig config = new PackageConfig();
         return config.setModuleName(MODULE_NAME)
                 .setParent(PACKAGE_NAME)
-                .setService("dbService")
-                .setServiceImpl("dbService.impl");
+                .setService(SERVICE_PACKAGE_NAME)
+                .setServiceImpl(SERVICE_IMPL_PACKAGE_NAME);
     }
 
     /**
