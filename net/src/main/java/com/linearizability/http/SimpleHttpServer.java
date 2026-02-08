@@ -15,6 +15,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
+/**
+ * 简易 http 服务
+ *
+ * @author ZhangBoyuan
+ * @since 2026-01-08
+ */
 @Slf4j
 public class SimpleHttpServer {
 

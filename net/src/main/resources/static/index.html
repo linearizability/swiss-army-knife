@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>文件中转</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:24px}
+    input[type=file]{margin-right:8px}
+    ul{padding-left:20px}
+  </style>
+</head>
+<body>
+  <h1>文件中转</h1>
+  <section>
+    <h2>上传文件</h2>
+    <form method="post" action="{{UPLOAD_PATH}}" enctype="multipart/form-data">
+      <input type="file" name="file" />
+      <button type="submit">上传</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>文件列表</h2>
+    <ul>
+      {{FILES}}
+    </ul>
+  </section>
+</body>
+</html>
