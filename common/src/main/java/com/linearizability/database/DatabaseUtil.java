@@ -38,10 +38,15 @@ public class DatabaseUtil {
                         DATA_SOURCE.setUsername(props.getProperty("db.username"));
                         DATA_SOURCE.setPassword(props.getProperty("db.password"));
                         DATA_SOURCE.setDriverClassName(props.getProperty("db.driver"));
+                        // 连接池中最大的连接数
                         DATA_SOURCE.setMaximumPoolSize(10);
+                        // 连接池中保持的最小空闲连接数
                         DATA_SOURCE.setMinimumIdle(2);
+                        // 获取连接的超时时间（单位毫秒）
                         DATA_SOURCE.setConnectionTimeout(30000);
+                        // 连接最大空闲时间（单位毫秒）
                         DATA_SOURCE.setIdleTimeout(600000);
+                        // 连接最大生存时间（单位毫秒）
                         DATA_SOURCE.setMaxLifetime(1800000);
                         log.info("数据库连接池初始化成功");
                     } catch (Exception e) {
@@ -62,6 +67,21 @@ public class DatabaseUtil {
     }
 
     /**
+     * 获取连接池状态信息
+     */
+    public static void getPoolStatus() {
+        if (Objects.isNull(DATA_SOURCE)) {
+            log.info("连接池未初始化");
+        }
+
+        log.info("数据库连接池状态：活跃连接数-{}, 空闲连接数-{}, 总连接数-{}",
+                DATA_SOURCE.getHikariPoolMXBean().getActiveConnections(),
+                DATA_SOURCE.getHikariPoolMXBean().getIdleConnections(),
+                DATA_SOURCE.getHikariPoolMXBean().getTotalConnections()
+        );
+    }
+
+    /**
      * 关闭数据源
      */
     public static void closeDataSource() {
@@ -75,21 +95,6 @@ public class DatabaseUtil {
                 DATA_SOURCE = null;
             }
         }
-    }
-
-    /**
-     * 获取连接池状态信息
-     */
-    public static void getPoolStatus() {
-        if (Objects.isNull(DATA_SOURCE)) {
-            log.info("连接池未初始化");
-        }
-
-        log.info("数据库连接池状态：活跃连接数-{}, 空闲连接数-{}, 总连接数-{}",
-                DATA_SOURCE.getHikariPoolMXBean().getActiveConnections(),
-                DATA_SOURCE.getHikariPoolMXBean().getIdleConnections(),
-                DATA_SOURCE.getHikariPoolMXBean().getTotalConnections()
-        );
     }
 
     /**
