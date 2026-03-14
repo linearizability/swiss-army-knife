@@ -12,13 +12,10 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
-import java.nio.channels.FileChannel;
-import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -686,41 +683,32 @@ public class FileTransferServer {
             exchange.getResponseHeaders().set(HEADER_CONTENT_DISPOSITION, CONTENT_DISPOSITION_ATTACHMENT + target.getFileName().toString() + "\"");
             exchange.sendResponseHeaders(200, len);
 
-            // 零拷贝下载：使用 FileChannel.transferTo() 直接将文件传输到 HTTP 响应流
-            // 避免在 JVM 堆中缓冲整个文件，适合超大文件
-            try (FileChannel fileChannel = FileChannel.open(target, StandardOpenOption.READ); WritableByteChannel responseChannel = new ByteChannelAdapter(exchange.getResponseBody())) {
-                fileChannel.transferTo(0, len, responseChannel);
+            // 分块下载：手动逐块传输，支持进度日志
+            // 使用 1MB 缓冲区，每 100MB 或 25% 进度打印一次日志
+            long transferred = 0;
+            long lastLogBytes = 0;
+            int lastLogPercent = 0;
+            try (InputStream in = Files.newInputStream(target); OutputStream out = exchange.getResponseBody()) {
+                byte[] buffer = new byte[BUFFER_SIZE];
+                int bytesRead;
+                while ((bytesRead = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, bytesRead);
+                    transferred += bytesRead;
+
+                    // 每 100MB 打印一次进度，或者每 25% 进度打印一次
+                    long percent = len > 0 ? (transferred * 100 / len) : 0;
+                    if (transferred - lastLogBytes >= PROGRESS_INTERVAL_BYTES || percent >= lastLogPercent + 25) {
+                        double percentDouble = len > 0 ? (transferred * 100.0 / len) : -1;
+                        log.info("Download Progress - ClientIP: {}, File: {}: {}/{}  {}%",
+                                clientIP, name, formatBytes(transferred), formatBytes(len), String.format("%.1f", percentDouble));
+                        lastLogBytes = transferred;
+                        lastLogPercent = (int) percent;
+                    }
+                }
+                out.flush();
             }
-        }
-    }
 
-    // ============ 零拷贝适配器 ============
-    private static class ByteChannelAdapter implements WritableByteChannel {
-        private final OutputStream out;
-        private boolean closed = false;
-
-        ByteChannelAdapter(OutputStream out) {
-            this.out = out;
-        }
-
-        @Override
-        public int write(java.nio.ByteBuffer src) throws IOException {
-            int remaining = src.remaining();
-            byte[] buf = new byte[remaining];
-            src.get(buf);
-            out.write(buf);
-            return remaining;
-        }
-
-        @Override
-        public boolean isOpen() {
-            return !closed;
-        }
-
-        @Override
-        public void close() throws IOException {
-            closed = true;
-            out.close();
+            log.info("Download completed - ClientIP: {}, File: {}, {} bytes transferred", clientIP, name, transferred);
         }
     }
 
