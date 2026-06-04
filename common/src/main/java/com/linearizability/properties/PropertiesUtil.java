@@ -22,10 +22,22 @@ public class PropertiesUtil {
     private static final String DB_PROPERTIES = "db.properties";
 
     /**
+     * 云存储配置文件
+     */
+    private static final String CLOUD_STORAGE_PROPERTIES = "cloud-storage.properties";
+
+    /**
      * 加载数据库配置文件
      */
     public static Properties loadDbProperties() {
         return load(PropertiesUtil.class, DB_PROPERTIES);
+    }
+
+    /**
+     * 加载云存储配置文件
+     */
+    public static Properties loadCloudStorageProperties() {
+        return load(PropertiesUtil.class, CLOUD_STORAGE_PROPERTIES);
     }
 
     /**
