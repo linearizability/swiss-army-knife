@@ -46,6 +46,16 @@ public class ObjectStorageMain {
     }
 
     /**
+     * 删除文件
+     *
+     * @param objectKey 文件对象键
+     */
+    private static void delete(String objectKey) {
+        log.info("========== 删除文件 ==========");
+        CLIENT.delete(objectKey);
+    }
+
+    /**
      * 下载文件
      *
      * @param objectKey     文件对象键
